@@ -1,0 +1,639 @@
+#include <gtk/gtk.h>
+#include <math.h>
+#include "GraphFromFile.h"
+
+GtkWidget *unost_0, *unost_1, *unosN_x, *unosN_y, *unos_x, *unos_y,
+*unosf_x, *unosf_y, *unosfi_x, *unosfi_y;
+GtkWidget *grid;
+GtkWidget *colorBtnX, *colorBtnY;
+GtkWidget *area, *btnPng;
+bool exportToPng = FALSE;
+GtkWidget *win;
+char pngPathName[512];
+char filePathName[512];
+double graphData[1000][10];
+
+
+double *fn1 = NULL;
+double *fn2 = NULL;
+double *fn3 = NULL;
+bool empty = true;
+
+struct coordinates
+{
+  double x;
+  double y;
+};
+
+const char* getEntryText(GtkWidget* pEntry)
+{
+    GtkEntryBuffer* buffer = gtk_entry_get_buffer (GTK_ENTRY(pEntry));
+    const char* text = gtk_entry_buffer_get_text (buffer);
+    return text;
+}
+
+void setEntryText(GtkWidget* pEntry, const char* text, int len)
+{
+    
+    GtkEntryBuffer* buffer = gtk_entry_get_buffer (GTK_ENTRY(pEntry));
+    
+    size_t nch = len;
+    if(nch <= 0)
+        nch = strlen(text);
+    
+    gtk_entry_buffer_set_text (buffer, text, (int)nch);
+}
+
+double dajEntryDbl(GtkWidget* pEntry)
+{
+    const char *val1 = getEntryText(pEntry);
+    double br = atof(val1);
+    return br;
+}
+
+int dajEntryInt(GtkWidget* pEntry)
+{
+    const char *val1 = getEntryText(pEntry);
+    int br = atoi(val1);
+    return br;
+}
+
+void setEntryDbl (GtkWidget* pEntry, double val)
+{
+    char tmp[64];
+    int n = sprintf(tmp, "%.3f", val);
+    setEntryText(pEntry, tmp, n);
+}
+
+void evaluteFun(double* min, double* max)
+{
+    if(fn1)
+        free(fn1);
+    if(fn2)
+        free(fn2);
+    if(fn3)
+        free(fn3);
+    int nX = dajEntryInt(unosN_x);
+    fn1 = (double*) malloc(nX * sizeof(double));
+    fn2 = (double*) malloc(nX * sizeof(double));
+    fn3 = (double*) malloc(nX * sizeof(double));
+    double t0 = dajEntryDbl(unost_0);
+    double t1 = dajEntryDbl(unost_1);
+    
+    double fx = dajEntryDbl(unosf_x);
+    double fy = dajEntryDbl(unosf_y);
+    double fi_x = dajEntryDbl(unosfi_x);
+    double fi_y = dajEntryDbl(unosfi_y);
+    double amplX = dajEntryDbl(unos_x);
+    double amplY = dajEntryDbl(unos_y);
+    double deltaT = (t1-t0)/nX;
+    double t = t0;
+    double m, M;
+    for(int i = 0; i < nX; i++)
+    {
+        double f1 = amplX*sin(2*3.14*fx*t+fi_x);
+        fn1[i] = f1;
+        double f2 = amplY*sin(2*3.14*fy*t+fi_y);
+        fn2[i] = f2;
+        double f3 = f1 + f2;
+        fn3[i] = f3;
+        if(i == 0)
+        {
+            m = fn1[0];
+            M = fn1[0];
+        }
+        else
+        {
+            if(m > f1)
+                m = f1;
+            if(M < f1)
+                M = f1;
+        }
+        if(m > f2)
+            m = f2;
+        if(M < f2)
+            M = f2;
+        
+        if(m > f3)
+            m = f3;
+        if(M < f3)
+            M = f3;
+        t += deltaT;
+    }
+    *min = m;
+    *max = M;
+}
+
+static void brisi (int width, int height)
+{
+    empty = true;
+    gtk_widget_queue_draw(area);
+    return;
+}
+
+static void crtajFn(cairo_t *cr, double deltaT, double *f, int n, double linewidth,GdkRGBA* color,  double pixel_t, double pixel_y, double maxY, int height)
+{
+    cairo_set_line_width (cr, linewidth);
+  //  cairo_set_source_rgb (cr, r, g, b);
+    gdk_cairo_set_source_rgba(cr, color);
+    
+    double t = 0;
+    for(int i = 0; i < n; i++)
+    {
+        double xPixel = pixel_t*t;
+        double yPixel = pixel_y*(maxY-f[i]);// + height/2. - midPoint * pixel_y;
+        if(i == 0)
+            cairo_move_to(cr, xPixel, yPixel);
+        else
+            cairo_line_to(cr, xPixel, yPixel);
+        t += deltaT;
+        
+    }
+    cairo_stroke(cr);
+}
+
+static void drawCoordinates(cairo_t *cr, double y, int width)
+{
+    cairo_set_line_width (cr, 1.0);
+    cairo_set_source_rgb (cr, 1, 1, 1);
+    cairo_move_to(cr, 0, y);
+    cairo_line_to(cr, width, y);
+    cairo_stroke(cr);
+}
+
+
+static void
+ draw_function (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data)
+{
+     if(empty)
+         return;
+     //unos odgovarajucih parametara za iscrtavanje
+     double min, max;
+     evaluteFun(&min, &max);
+     double t0 = dajEntryDbl(unost_0);
+     double t1 = dajEntryDbl(unost_1);
+     double pixel_t = width/(t1-t0);
+     double pixel_y = height/(max-min);
+     int n = dajEntryInt(unosN_x);
+     double dt = (t1-t0)/n;
+     double yZero = pixel_y*max;
+     drawCoordinates(cr, yZero, width);
+     GdkRGBA colorX;
+     gtk_color_chooser_get_rgba (colorBtnX, &colorX);
+     GdkRGBA colorY;
+     gtk_color_chooser_get_rgba (colorBtnY, &colorY);
+     GdkRGBA colorSum;
+     colorSum.alpha = 1;
+     double c = colorX.red + colorY.red;
+     if(c > 1)
+         c = 1;
+     colorSum.red = c;
+     c = colorX.green + colorY.green;
+     if(c > 1)
+         c = 1;
+     colorSum.green = c;
+     c = colorX.blue + colorY.blue;
+     if(c > 1)
+         c = 1;
+     colorSum.blue = c;
+     crtajFn(cr,dt, fn1, n, 1, &colorX, pixel_t, pixel_y, max, height);
+     crtajFn(cr,dt, fn2, n, 1, &colorY, pixel_t, pixel_y, max, height);
+     crtajFn(cr,dt, fn3, n, 1, &colorSum, pixel_t, pixel_y, max, height);
+     if(exportToPng)
+     {
+         cairo_surface_t* surface = cairo_get_target(cr);
+         cairo_surface_write_to_png (surface, pngPathName);
+         
+        // cairo_surface_write_to_png (surface, "/Users/dzeni/Desktop/sine.png");
+         exportToPng = false;
+     }
+ }
+
+static void
+on_save_response (GtkNativeDialog *dialog,
+                  int        response)
+{
+  if (response == GTK_RESPONSE_ACCEPT)
+    {
+        GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
+        GFile* file = gtk_file_chooser_get_file(chooser);
+//      pngPathName = gtk_file_chooser_get_current_name(GTK_FILE_CHOOSER(dialog));
+        const char* path = g_file_get_path(file);
+        strcpy(pngPathName, path);
+        g_object_unref(file);
+        exportToPng = TRUE;
+        gtk_widget_queue_draw(area);
+    }
+    g_object_unref(dialog);
+}
+
+
+
+//static void savePng(int width, int height)
+//{
+//    //cairo_surface_t *surface;
+//    //surface = cairo_image_surface_create (CAIRO_FORMAT_RGB24, width, height);
+//    //cairo_surface_write_to_png (surface, "/Users/dzeni/Desktop/sine.png");
+//    GtkWidget *dialog;
+//
+//      dialog = gtk_file_chooser_dialog_new ("Select file",
+//                                            GTK_WINDOW (win),
+//                                            GTK_FILE_CHOOSER_ACTION_SAVE,
+//                                            "_Cancel", GTK_RESPONSE_CANCEL,
+//                                            "_Save", GTK_RESPONSE_OK,
+//                                            NULL);
+//      gtk_dialog_set_default_response (GTK_DIALOG (dialog), GTK_RESPONSE_OK);
+//      gtk_window_set_modal (GTK_WINDOW (dialog), TRUE);
+//      gtk_widget_show (dialog);
+//
+//      g_signal_connect (dialog, "response",
+//                        G_CALLBACK (on_save_response),
+//                        NULL);
+//
+//
+//}
+
+static void savePng(int width, int height)
+{
+    GtkFileChooserNative* dlg;
+    GtkFileChooserAction* action = GTK_FILE_CHOOSER_ACTION_SAVE;
+    gint res;
+    dlg = gtk_file_chooser_native_new("Snimi graf", win, action, "_Save", "_Cancel");
+    g_signal_connect (dlg, "response",
+                         G_CALLBACK (on_save_response),
+                         NULL);
+    gtk_native_dialog_show(dlg);
+    
+}
+
+static void on_open_response (GtkDialog *dialog, int response)
+{
+    int nRows, nCols;
+    if (response == GTK_RESPONSE_ACCEPT)
+      {
+          GtkFileChooser* chooser = GTK_FILE_CHOOSER(dialog);
+          GFile* file = gtk_file_chooser_get_file(chooser);
+          const char* path = g_file_get_path(file);
+          if(loadData(path, graphData, &nRows, &nCols))
+          {
+              g_object_unref(file);
+              g_object_unref(dialog);
+              showData (win, "Podaci iz file-a", graphData, nRows, nCols);
+             
+              return;
+          }
+          g_object_unref(file);
+      }
+      g_object_unref(dialog);
+}
+
+static void activate_open ()
+{
+    GtkFileChooserNative* dlg;
+    GtkFileChooserAction* action = GTK_FILE_CHOOSER_ACTION_OPEN;
+    gint res;
+    dlg = gtk_file_chooser_native_new("Open file", win, action, "_Open", "_Cancel");
+    g_signal_connect (dlg, "response",
+                         G_CALLBACK (on_open_response),
+                         NULL);
+    gtk_native_dialog_show(dlg);
+}
+
+
+static void crtaj()
+{
+    empty = false;
+    gtk_widget_queue_draw(area);
+}
+
+static void
+quit_activated(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+    GApplication *app = G_APPLICATION (user_data);
+    g_application_quit (app);
+}
+
+static void
+test_activated(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+    printf("Test activated\n");
+}
+static void
+edit_activated(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+    printf("Edit activated\n");
+}
+static void
+view_activated(GSimpleAction *action, GVariant *parameter, gpointer user_data)
+{
+    printf("View activated\n");
+}
+
+///
+static void createMenu(GApplication *app)
+{
+    GMenu *menubar = g_menu_new ();
+    //prvi submenu
+    GSimpleAction *act_quit = g_simple_action_new ("quit", NULL);
+    g_action_map_add_action (G_ACTION_MAP (app), G_ACTION (act_quit));
+    g_signal_connect (act_quit, "activate", G_CALLBACK (quit_activated), app);
+    
+    GSimpleAction *act_test = g_simple_action_new ("test", NULL);
+    g_action_map_add_action (G_ACTION_MAP (app), G_ACTION (act_test));
+    g_signal_connect (act_test, "activate", G_CALLBACK (test_activated), app);
+    
+    GMenuItem *menu_item_menu = g_menu_item_new ("Menu", NULL);
+    GMenu *menu = g_menu_new ();
+
+    GMenuItem *menu_item_test = g_menu_item_new ("Test", "app.test");
+    g_menu_append_item (menu, menu_item_test);
+    g_object_unref (menu_item_test);
+    
+    GMenuItem *menu_item_quit = g_menu_item_new ("Quit", "app.quit");
+    g_menu_append_item (menu, menu_item_quit);
+    g_object_unref (menu_item_quit);
+    g_menu_item_set_submenu (menu_item_menu, G_MENU_MODEL (menu));
+    g_menu_append_item (menubar, menu_item_menu);
+    g_object_unref (menu_item_menu);
+    
+    //drugi submenu
+    GSimpleAction *act_edit = g_simple_action_new ("edit", NULL);
+    g_action_map_add_action (G_ACTION_MAP (app), G_ACTION (act_edit));
+    g_signal_connect (act_edit, "activate", G_CALLBACK (edit_activated), app);
+    
+    GSimpleAction *act_view = g_simple_action_new ("view", NULL);
+    g_action_map_add_action (G_ACTION_MAP (app), G_ACTION (act_view));
+    g_signal_connect (act_view, "activate", G_CALLBACK (view_activated), app);
+    
+    GMenuItem *menu_item_editSB = g_menu_item_new ("Edit SB", NULL);
+    GMenu *menu_editSB = g_menu_new ();
+    
+    GMenuItem *menu_item_edit = g_menu_item_new ("Edit", "app.edit");
+    g_menu_append_item (menu_editSB, menu_item_edit);
+    g_object_unref (menu_item_edit);
+
+    GMenuItem *menu_item_view = g_menu_item_new ("Test", "app.view");
+    g_menu_append_item (menu_editSB, menu_item_view);
+    g_object_unref (menu_item_view);
+    
+    
+    g_menu_item_set_submenu (menu_item_editSB, G_MENU_MODEL (menu_editSB));
+    g_menu_append_item (menubar, menu_item_editSB);
+    g_object_unref (menu_item_editSB);
+
+    // common part
+    // set application menu bar
+    gtk_application_set_menubar (GTK_APPLICATION (app), G_MENU_MODEL (menubar));
+    gtk_application_window_set_show_menubar (GTK_APPLICATION_WINDOW (win), TRUE);
+}
+
+static void comboBoxSelChange()
+{
+    printf("Selection changed");
+}
+
+void scaleChanged (GtkRange* self,gpointer user_data)
+{
+    double value = gtk_range_get_value(self);
+    if(user_data == 0)
+        setEntryDbl(unos_x, value);
+    else
+        setEntryDbl(unos_y, value);
+}
+
+static void createToolBar(GtkWidget *boxToolBar)
+{
+    GtkImage *imageExport;
+    imageExport = gtk_image_new_from_file("/Users/dzeni/Work/Icons/export.png");
+    gtk_image_set_icon_size (imageExport,GTK_ICON_SIZE_LARGE);
+    
+    GtkImage *imageDraw;
+    imageDraw = gtk_image_new_from_file("/Users/dzeni/Work/Icons/chart.png");
+    gtk_image_set_icon_size (imageDraw,GTK_ICON_SIZE_LARGE);
+    
+    GtkImage *imageDelete;
+    imageDelete = gtk_image_new_from_file("/Users/dzeni/Work/Icons/delete.png");
+    gtk_image_set_icon_size (imageDelete,GTK_ICON_SIZE_LARGE);
+    
+    GtkImage *imageExit;
+    imageExit = gtk_image_new_from_file("/Users/dzeni/Work/Icons/openFile.png");
+    gtk_image_set_icon_size (imageExit,GTK_ICON_SIZE_LARGE);
+    
+    GtkWidget *btnCrtaj, *btnBrisi, *btnExit, *lblEmpty;
+    lblEmpty = gtk_label_new(" ");
+    gtk_widget_set_hexpand(lblEmpty, TRUE);
+    btnCrtaj = gtk_button_new_with_label ("Crtaj");
+    btnBrisi = gtk_button_new_with_label ("Brisi");
+    btnPng = gtk_button_new_with_label ("Save as .png");
+    btnExit = gtk_button_new_with_label ("Exit");
+    
+    GtkWidget *boxExport, *lblExport, *lblDraw, *lblDelete, *lblExit;
+    GtkWidget *boxDraw, *boxDelete, *boxExit;
+    boxExport = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+    boxDraw = gtk_box_new(GTK_ORIENTATION_VERTICAL,3);
+    boxDelete = gtk_box_new(GTK_ORIENTATION_VERTICAL,3);
+    boxExit = gtk_box_new(GTK_ORIENTATION_VERTICAL,3);
+    
+    lblExport = gtk_label_new("Export to .png");
+    lblDraw = gtk_label_new("Crtaj");
+    lblDelete = gtk_label_new("Brisi");
+    lblExit = gtk_label_new("Open File");
+    gtk_box_append(boxDraw, imageDraw);
+    gtk_box_append(boxDraw, lblDraw);
+    gtk_box_append(boxDelete, imageDelete);
+    gtk_box_append(boxDelete, lblDelete);
+    gtk_box_append(boxExport, imageExport);
+    gtk_box_append(boxExport, lblExport);
+    gtk_box_append(boxExit, imageExit);
+    gtk_box_append(boxExit, lblExit);
+
+    gtk_button_set_child(btnCrtaj, boxDraw);
+    gtk_button_set_child(btnBrisi, boxDelete);
+    gtk_button_set_child(btnPng, boxExport);
+    gtk_button_set_child(btnExit, boxExit);
+    
+    gtk_box_append(boxToolBar, btnCrtaj);
+    gtk_box_append(boxToolBar, btnBrisi);
+    gtk_box_append(boxToolBar, btnPng);
+    gtk_box_append(boxToolBar, lblEmpty);
+    gtk_box_append(boxToolBar, btnExit);
+    
+    g_signal_connect (btnCrtaj, "clicked", G_CALLBACK (crtaj), NULL);
+    g_signal_connect (btnBrisi, "clicked", G_CALLBACK (brisi), NULL);
+    g_signal_connect (btnExit, "clicked", G_CALLBACK (activate_open), NULL);
+    g_signal_connect (btnPng, "clicked", G_CALLBACK (savePng), NULL);
+}
+
+static void app_activate (GApplication *app, gpointer user_data)
+{
+    //gtk_combo_box_set_child(GTK_WIDGET(comboBox), comboLabel);
+    GtkWidget *mainVertBox, *boxToolBar;
+    mainVertBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    boxToolBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    
+    int i = 0;
+    g_object_set(gtk_settings_get_default(),
+        "gtk-application-prefer-dark-theme", TRUE,
+        NULL);
+    win = gtk_application_window_new (GTK_APPLICATION (app));
+    gtk_window_set_title (GTK_WINDOW (win), "Sinusoida generator");
+    gtk_window_set_default_size (GTK_WINDOW (win), 400, 300);
+    
+    createMenu(app);
+    
+    createToolBar(boxToolBar);
+
+    gtk_box_append(mainVertBox, boxToolBar);
+    
+    grid = gtk_grid_new();
+    gtk_grid_set_column_homogeneous (GTK_GRID(grid),TRUE);
+  //  gtk_grid_set_row_homogeneous (GTK_GRID(grid),TRUE);
+
+    /* Pack the container in the window */
+   // gtk_window_set_child (GTK_WINDOW (win), grid);
+    gtk_window_set_child (GTK_WINDOW (win), mainVertBox);
+    gtk_box_append(mainVertBox, grid);
+
+    GtkWidget *t_0, *t_1;
+    t_0 = gtk_label_new("t_0 = ");
+    t_1 = gtk_label_new("t_1 = ");
+    unost_0 = gtk_entry_new();
+    unost_1 = gtk_entry_new();
+    setEntryText(unost_0, "0", 1);
+    setEntryText(unost_1, "0.1", 3);
+    gtk_grid_attach (GTK_GRID (grid), t_0, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unost_0, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), t_1, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unost_1, 3, i++, 1, 1);
+    
+    
+    GtkWidget *N_x, *N_y;
+    N_x = gtk_label_new("N_x = ");
+    N_y = gtk_label_new("N_y = ");
+    unosN_x = gtk_entry_new();
+    unosN_y = gtk_entry_new();
+    setEntryText(unosN_x, "500", 3);
+    setEntryText(unosN_y, "550", 3);
+    gtk_grid_attach (GTK_GRID (grid), N_x, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosN_x, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), N_y, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosN_y, 3, i++, 1, 1);
+    
+    
+    GtkWidget *AmplitudaX, *AmplitudaY;
+    AmplitudaX = gtk_label_new("Amplituda_X = ");
+    AmplitudaY = gtk_label_new("Amplituda_Y = ");
+    unos_x = gtk_entry_new();
+    unos_y = gtk_entry_new();
+    setEntryText(unos_x, "0.2", 3);
+    setEntryText(unos_y, "0.05", 4);
+    gtk_grid_attach (GTK_GRID (grid), AmplitudaX, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unos_x, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), AmplitudaY, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unos_y, 3, i++, 1, 1);
+    
+    GtkWidget *scaleX, *scaleY;
+    GtkAdjustment *adjustment1, *adjustment2;
+    adjustment1 = gtk_adjustment_new (0.5 , 0.01 , 100.0 , 0.01 , 15.0 , 0.0);
+    scaleX = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, adjustment1);
+    gtk_scale_set_digits (GTK_SCALE ( scaleX ) , 2);
+    gtk_scale_set_value_pos (GTK_SCALE (scaleX) , GTK_POS_TOP) ;
+    gtk_scale_set_draw_value (GTK_SCALE (scaleX) , TRUE) ;
+    gtk_grid_attach (GTK_GRID (grid), scaleX, 0, i, 2, 1);
+    void* s1 = 0;
+    g_signal_connect(scaleX, "value_changed", G_CALLBACK (scaleChanged), s1);
+    
+    
+    adjustment2 = gtk_adjustment_new (0.5 , 0.01 , 100.0 , 0.01 , 15.0 , 0.0);
+    scaleY = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, adjustment2);
+    gtk_scale_set_digits (GTK_SCALE ( scaleY ) , 2);
+    gtk_scale_set_value_pos (GTK_SCALE (scaleY) , GTK_POS_TOP) ;
+    gtk_scale_set_draw_value (GTK_SCALE (scaleY) , TRUE) ;
+    gtk_grid_attach (GTK_GRID (grid), scaleY, 2, i++, 2, 1);
+    s1 = 1;
+    g_signal_connect(scaleY, "value_changed", G_CALLBACK (scaleChanged), s1);
+    
+    GtkWidget *f_x, *f_y;
+    f_x = gtk_label_new("f_x = ");
+    f_y = gtk_label_new("f_y = ");
+    unosf_x = gtk_entry_new();
+    unosf_y = gtk_entry_new();
+    setEntryText(unosf_x, "50", 2);
+    setEntryText(unosf_y, "150", 3);
+    gtk_grid_attach (GTK_GRID (grid), f_x, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosf_x, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), f_y, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosf_y, 3, i++, 1, 1);
+    
+    GtkWidget *fi_x, *fi_y;
+    fi_x = gtk_label_new("fi_x = ");
+    fi_y = gtk_label_new("fi_y = ");
+    unosfi_x = gtk_entry_new();
+    unosfi_y = gtk_entry_new();
+    gtk_grid_attach (GTK_GRID (grid), fi_x, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosfi_x, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), fi_y, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), unosfi_y, 3, i++, 1, 1);
+    
+    GtkWidget *lblClrX, *lblClrY;
+    colorBtnX = gtk_color_button_new();
+    GdkRGBA clr;
+    clr.alpha = 1;
+    clr.red = 1;
+    clr.green = 0;
+    clr.blue = 0;
+    gtk_color_chooser_set_rgba(colorBtnX, &clr);
+    colorBtnY = gtk_color_button_new();
+    clr.red = 0;
+    clr.green = 1;
+    gtk_color_chooser_set_rgba(colorBtnY, &clr);
+    lblClrX = gtk_label_new("Boja: ");
+    lblClrY = gtk_label_new("Boja: ");
+    gtk_grid_attach (GTK_GRID (grid), lblClrX, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), colorBtnX, 1, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), lblClrY, 2, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), colorBtnY, 3, i++, 1, 1);
+    
+    area = gtk_drawing_area_new ();
+    gtk_widget_set_size_request (area, 300, 300);
+    gtk_widget_set_vexpand(area, TRUE);
+    gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (area), draw_function, NULL, NULL);
+    
+    gtk_grid_attach (GTK_GRID (grid), area, 0, i++, 4, 1);
+    
+    GtkComboBoxText* comboBox;
+    comboBox = gtk_combo_box_text_new();
+    
+    gtk_combo_box_text_append(comboBox,"1", "Izo");
+    gtk_combo_box_text_append(comboBox,"2", "Anisa");
+    gtk_combo_box_text_append(comboBox,"3", "Dzeni");
+    gtk_combo_box_text_append(comboBox,"4", "Aida");
+    
+    gtk_combo_box_set_active(comboBox, 0);
+
+    GtkWidget* comboLabel;
+    comboLabel = gtk_label_new("Nasa zajednica");
+    
+    g_signal_connect (comboBox, "changed", G_CALLBACK (comboBoxSelChange), NULL);
+    gtk_grid_attach (GTK_GRID (grid), comboLabel, 0, i, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), comboBox, 1, i++, 1, 1);
+    
+    GtkWidget *label;
+    label = gtk_label_new("Copyright (c)2021 by DžDž production");
+    gtk_grid_attach (GTK_GRID (grid), label, 1, i++, 2, 1);
+
+    gtk_widget_show (win);
+
+}
+
+int main (int argc, char **argv) {
+  GtkApplication *app;
+  int stat;
+
+  app = gtk_application_new ("com.github.ToshioCP.lb4", G_APPLICATION_FLAGS_NONE);
+  g_signal_connect (app, "activate", G_CALLBACK (app_activate), NULL);
+   stat =g_application_run (G_APPLICATION (app), argc, argv);
+   g_object_unref (app);
+   return stat;
+ }
+
